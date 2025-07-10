@@ -1,6 +1,6 @@
 [package]
 name = "static_serve"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["samicpp"]
 edition = "2021"
 
