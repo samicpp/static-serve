@@ -1,7 +1,11 @@
 use crate::{structs::SharedData, Http1Socket};
 
+use tokio::{
+    fs::{self, File}, io::AsyncReadExt,
+};
 use std::{
-    fs::{self, File}, io::Read, path::{Component, Path, PathBuf}
+    // io::Read, 
+    path::{Component, Path, PathBuf}
 };
 
 use rust_http::traits::HttpSocket;
@@ -39,7 +43,7 @@ pub async fn handler(shared: &SharedData, mut req: Http1Socket) -> std::io::Resu
 
     
     
-    let info_res = fs::metadata(&full_path);
+    let info_res = fs::metadata(&full_path).await;
     match info_res{
         Ok(info) => {
             if info.is_file() {
@@ -101,7 +105,7 @@ pub async fn error_handler(_shared: &SharedData,code: u16, err: std::io::Error, 
 
 pub async fn file_handler(shared: &SharedData, path: &str, mut res: Http1Socket) -> std::io::Result<()> {
     let mime=&shared.mime;
-    let mut file = File::open(path).unwrap();
+    let mut file = File::open(path).await.unwrap();
     // let mut buffer = vec![];
     let parts: Vec<&str>=path.split(".").collect::<Vec<&str>>();
     let last=parts[parts.len()-1];
@@ -127,24 +131,24 @@ pub async fn file_handler(shared: &SharedData, path: &str, mut res: Http1Socket)
     };
 
     let mut buffer = vec![];
-    file.read_to_end(&mut buffer).unwrap();
+    file.read_to_end(&mut buffer).await.unwrap();
     res.close(&buffer).await?;
     
     Ok(())
 }
 
 pub async fn dir_handler(shared: &SharedData, res: Http1Socket,path: &str) -> std::io::Result<()> {
-    let dir: fs::ReadDir = fs::read_dir(&path).unwrap();
+    let mut dir = fs::read_dir(&path).await?;
     let mut file: String = "".to_string();
 
     println!("Path is dir {}", path);
 
-    for entry in dir{
-        let entry = entry.unwrap();
-        let file_name = entry.file_name().into_string().unwrap();
+    while let Some(entry)=dir.next_entry().await?{
+        // let entry = entry.unwrap();
+        let file_name = entry.file_name().into_string().unwrap_or("unknown".to_owned());
         let file_parts: Vec<&str> = (&path).to_owned().split('/').collect();
         let last_dir = file_parts.last().unwrap_or(&".");
-        let meta = entry.metadata().unwrap();
+        let meta = entry.metadata().await?;
         if !meta.is_file() {
             continue; // Mitigate dirs treated as files
         }
@@ -161,7 +165,7 @@ pub async fn dir_handler(shared: &SharedData, res: Http1Socket,path: &str) -> st
 
     println!("File found {}", file);
 
-    if fs::metadata(&file).unwrap().is_file(){
+    if fs::metadata(&file).await.unwrap().is_file(){
         file_handler(shared,&file,res).await
     } else {
         error_handler(shared,409, std::io::Error::new(std::io::ErrorKind::IsADirectory,"Cannot find index file in directory"), res).await
