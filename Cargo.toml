@@ -1,0 +1,11 @@
+[package]
+name = "static_serve"
+version = "0.1.0"
+authors = ["samicpp"]
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+rust_http = { path = "./rust-http" }
+ctrlc = "3.4.7"
+dotenvy = "0.15.7"
