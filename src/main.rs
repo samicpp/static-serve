@@ -69,28 +69,16 @@ async fn main()->std::io::Result<()> {
     };
 
     ctrlc::set_handler(move||{
-        println!("SIG_INT received\nprocess exit after {}s",&start.elapsed().as_millis()/1000);
+        println!("\x1b[31mSIG_INT received\x1b[0m\n\x1b[36mprocess exit after {}s\x1b[0m",&start.elapsed().as_millis()/1000);
         std::process::exit(0);
     }).expect("couldnt set ctrl+c handler");
 
     println!("http://{}/",&address);
     listener::http_listener(&address, listener).await.unwrap();
     
-    // loop{}
+    
 
     // println!("process exit after {}s",&start.elapsed().as_millis()/1000);
 
     Ok(())
 }
-
-
-
-// async fn test_listener(mut conn: Http1Socket){
-//     if let Err(err)=conn.update_client().await{
-//         conn.status=500;
-//         conn.status_msg="Internal Server Error".to_owned();
-//         conn.set_header("Content-Type", "text/plain");
-//         let _=conn.close(format!("Internal Server Error occoured:\n{:?}",err).as_bytes()).await;
-//     };
-//     conn.close(b"after a long time").await.unwrap();
-// }
