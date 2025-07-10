@@ -71,7 +71,7 @@ pub async fn error_handler(_shared: &SharedData,code: u16, err: std::io::Error, 
             println!("404 Not Found: {}", &req.client.path);
             req.status=404;
             req.status_msg="404 Not Found".to_owned();
-            req.set_header("Content-Type", "text/plain");
+            let _=req.set_header("Content-Type", "text/plain");
             req.close(b"not found").await?;
             Ok(())
         },
@@ -79,7 +79,7 @@ pub async fn error_handler(_shared: &SharedData,code: u16, err: std::io::Error, 
             println!("409 Conflict: {}", &req.client.path);
             req.status=409;
             req.status_msg="409 Conflict".to_owned();
-            req.set_header("Content-Type", "text/plain");
+            let _=req.set_header("Content-Type", "text/plain");
             req.close(b"conflict").await?;
             Ok(())
         },
@@ -87,7 +87,7 @@ pub async fn error_handler(_shared: &SharedData,code: u16, err: std::io::Error, 
             println!("500 Internal Server Error: {}", &req.client.path);
             req.status=500;
             req.status_msg="500 Internal Server Error".to_owned();
-            req.set_header("Content-Type", "text/plain");
+            let _=req.set_header("Content-Type", "text/plain");
             req.close(b"internal server error").await?;
             Ok(())
         },
@@ -95,7 +95,7 @@ pub async fn error_handler(_shared: &SharedData,code: u16, err: std::io::Error, 
             println!("{}: {}", code, &req.client.path);
             req.status=code;
             req.status_msg=format!("{}: {}", code, err);
-            req.set_header("Content-Type", "text/plain");
+            let _=req.set_header("Content-Type", "text/plain");
             req.close(b"internal server error").await?;
             Ok(())
         }
@@ -125,9 +125,9 @@ pub async fn file_handler(shared: &SharedData, path: &str, mut res: Http1Socket)
     } else if path.ends_with(".gif") {
         res.set_header("Content-Type", "image/gif");
     } else*/ if let Some(ct)=mime.get(last) {
-        res.set_header("Content-Type", ct);
+        let _=res.set_header("Content-Type", ct);
     } else {
-        res.set_header("Content-Type", "application/octet-stream");
+        let _=res.set_header("Content-Type", "application/octet-stream");
     };
 
     let mut buffer = vec![];
