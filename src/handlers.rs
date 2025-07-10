@@ -1,13 +1,9 @@
 use crate::{structs::SharedData, Http1Socket};
 
-// use std::convert::Infallible;
 use std::{
     fs::{self, File}, io::Read, path::{Component, Path, PathBuf}
 };
 
-// use crate::mime_map::mime_map;
-
-// use regex::Regex;
 use rust_http::traits::HttpSocket;
 
 pub async fn handler(shared: &SharedData, mut req: Http1Socket) -> std::io::Result<()> {
@@ -18,10 +14,6 @@ pub async fn handler(shared: &SharedData, mut req: Http1Socket) -> std::io::Resu
     if let Err(err)=req.update_client().await{
         eprintln!("error at Http1Socket::update_client() \n{:?}",err);
     };
-
-    // let path_cleanup1: Regex = Regex::new(r"/+").unwrap();
-    // let path_cleanup2: Regex = Regex::new(r"/$").unwrap();
-    // let path_cleanup3: Regex = Regex::new(r"\?*.").unwrap();
 
     let full_path: String = { 
         let full_path: String = req.client.path.clone();
@@ -41,15 +33,6 @@ pub async fn handler(shared: &SharedData, mut req: Http1Socket) -> std::io::Resu
         let full_path = full_path.replace("\\","/");
 
 
-        // let full_path   =full_path.replace("\\", "/");
-        // let full_path = path_cleanup1.replace_all(&full_path, "/");
-        // let full_path = if full_path.len() > 1 {
-        //     path_cleanup2.replace(&full_path, "")
-        // } else {
-        //     full_path
-        // };
-        // let full_path = if full_path.len() > 1 { path_cleanup3.replace_all(&full_path, "") } else { full_path };
-
         serve_dir.to_owned() + &full_path.to_string()
     };
     println!("Full path: {}", full_path);
@@ -61,29 +44,8 @@ pub async fn handler(shared: &SharedData, mut req: Http1Socket) -> std::io::Resu
         Ok(info) => {
             if info.is_file() {
                 file_handler(shared, &full_path,req).await
-                // let mut file = File::open(&full_path).unwrap();
-                // let mut buffer = vec![0; info.len() as usize];
-                // file.read_exact(&mut buffer).unwrap();
-                // Ok(Response::new(Full::new(Bytes::from(buffer))))
             } else if info.is_dir(){
                 dir_handler(shared, req, &full_path).await
-                // let dir: fs::ReadDir = fs::read_dir(&full_path).unwrap();
-                // let mut file: String = "".to_string();
-                //
-                // for entry in dir{
-                //     let entry = entry.unwrap();
-                //     let file_name = entry.file_name().into_string().unwrap();
-                //     if file_name.starts_with("index.") || file_name == "index" {
-                //         file = full_path.to_owned() + "/" + &file_name;
-                //         break;
-                //     }
-                // }
-                //
-                // if file==""{
-                //     error_handler(409, std::io::Error::new(std::io::ErrorKind::IsADirectory,"Cannot find index file in directory"), req).await
-                // } else {
-                //     file_handler(&file).await
-                // }
             } else {
                 error_handler(shared, 409, std::io::Error::new(std::io::ErrorKind::Unsupported, "File is unusable"), req).await
             }
@@ -96,8 +58,6 @@ pub async fn handler(shared: &SharedData, mut req: Http1Socket) -> std::io::Resu
             }
         },
     }
-
-    // Ok(Response::new(Full::new(Bytes::from("Hello, World!"))))
 }
 
 pub async fn error_handler(_shared: &SharedData,code: u16, err: std::io::Error, mut req: Http1Socket) -> std::io::Result<()>{
@@ -191,8 +151,9 @@ pub async fn dir_handler(shared: &SharedData, res: Http1Socket,path: &str) -> st
 
         println!("Directory entry {}\n{:?}",file_name,entry);
 
-        if file_name.starts_with("index.") || file_name == "index" || file_name.starts_with(last_dir) {
+        if file_name.starts_with("index.") || file_name == "index" || (!last_dir.is_empty() && file_name.starts_with(last_dir)) {
             // file = path.to_owned() + "/" + &file_name;
+            // println!("last dir = {:?}\npath = {path:?}",last_dir);
             file = entry.path().to_string_lossy().to_string();
             break;
         }
