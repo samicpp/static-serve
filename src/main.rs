@@ -5,6 +5,7 @@ mod structs;
 use rust_http::{
     http1::handler::Http1Socket, listener, /*traits::HttpSocket*/
 };
+use tokio::net::TcpStream;
 
 use std::{
     env,
@@ -54,7 +55,7 @@ async fn main()->std::io::Result<()> {
 
     let listener = {
         let shared=Arc::clone(&shared);
-        move |conn: Http1Socket| {
+        move |conn: Http1Socket<TcpStream>| {
             let shared=Arc::clone(&shared);
             async move {
                 let now=Instant::now();

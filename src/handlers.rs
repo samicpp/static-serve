@@ -1,4 +1,4 @@
-use crate::{structs::SharedData, Http1Socket};
+use crate::{structs::SharedData, /*Http1Socket*/};
 
 use tokio::{
     fs::{self, File}, io::AsyncReadExt,
@@ -8,19 +8,23 @@ use std::{
     path::{Component, Path, PathBuf}
 };
 
-use rust_http::common::{HttpResult, HttpSocket};
+use rust_http::common::{HttpClient, HttpResult, HttpSocket, Stream};
 
-pub async fn handler(shared: &SharedData, mut req: Http1Socket) -> HttpResult<()> {
+pub async fn handler<N:Stream,S:HttpSocket<N>>(shared: &SharedData, mut req: S) -> HttpResult<()> {
     println!("Serving connection");
 
     let serve_dir=&shared.serve_dir;
 
-    if let Err(err)=req.update_client().await{
-        eprintln!("error at Http1Socket::update_client() \n{:?}",err);
+    let client=match req.get_client().await{
+        Err(err)=>{
+            eprintln!("error at Http1Socket::update_client() \n{:?}",err);
+            HttpClient::empty()
+        },
+        Ok(c)=>c.clone(),
     };
 
     let full_path: String = { 
-        let full_path: String = req.client.path.clone();
+        let full_path: String = client.path.clone();
         let full_path = full_path.replace("\\","/");
         let full_path = full_path.split(|c| c == '?' || c == '#').next().unwrap_or("");
         
@@ -64,37 +68,40 @@ pub async fn handler(shared: &SharedData, mut req: Http1Socket) -> HttpResult<()
     }
 }
 
-pub async fn error_handler(_shared: &SharedData,code: u16, err: std::io::Error, mut req: Http1Socket) -> HttpResult<()>{
+pub async fn error_handler<N:Stream,S:HttpSocket<N>>(_shared: &SharedData,code: u16, err: std::io::Error, mut req: S) -> HttpResult<()>{
     eprintln!("Error of status {} occoured\n\x1b[31m{}\x1b[0m",code,err);
     match code {
         404 => {
-            println!("404 Not Found: {}", &req.client.path);
-            req.status=404;
-            req.status_msg="404 Not Found".to_owned();
+            println!("404 Not Found: {}", &req.get_client().await?.path);
+            req.set_status(404, "Not found".to_owned())?;
+            // req.status_msg="404 Not Found".to_owned();
             let _=req.set_header("Content-Type", "text/plain");
             req.close(b"not found").await?;
             Ok(())
         },
         409 => {
-            println!("409 Conflict: {}", &req.client.path);
-            req.status=409;
-            req.status_msg="409 Conflict".to_owned();
+            println!("409 Conflict: {}", &req.get_client().await?.path);
+            req.set_status(409, "Conflict".to_owned())?;
+            // req.status=409;
+            // req.status_msg="409 Conflict".to_owned();
             let _=req.set_header("Content-Type", "text/plain");
             req.close(b"conflict").await?;
             Ok(())
         },
         500 => {
-            println!("500 Internal Server Error: {}", &req.client.path);
-            req.status=500;
-            req.status_msg="500 Internal Server Error".to_owned();
+            println!("500 Internal Server Error: {}", &req.get_client().await?.path);
+            req.set_status(500, "Internal Server Error".to_owned())?;
+            // req.status=500;
+            // req.status_msg="500 Internal Server Error".to_owned();
             let _=req.set_header("Content-Type", "text/plain");
             req.close(b"internal server error").await?;
             Ok(())
         },
         _ => {
-            println!("{}: {}", code, &req.client.path);
-            req.status=code;
-            req.status_msg=format!("{}: {}", code, err);
+            println!("{}: {}", code, &req.get_client().await?.path);
+            req.set_status(code, format!("{}: {}", code, err))?;
+            // req.status=code;
+            // req.status_msg=format!("{}: {}", code, err);
             let _=req.set_header("Content-Type", "text/plain");
             req.close(b"internal server error").await?;
             Ok(())
@@ -103,7 +110,7 @@ pub async fn error_handler(_shared: &SharedData,code: u16, err: std::io::Error, 
     }
 }
 
-pub async fn file_handler(shared: &SharedData, path: &str, mut res: Http1Socket) -> HttpResult<()> {
+pub async fn file_handler<N:Stream,S:HttpSocket<N>>(shared: &SharedData, path: &str, mut res: S) -> HttpResult<()> {
     let mime=&shared.mime;
     let mut file = File::open(path).await.unwrap();
     // let mut buffer = vec![];
@@ -137,7 +144,7 @@ pub async fn file_handler(shared: &SharedData, path: &str, mut res: Http1Socket)
     Ok(())
 }
 
-pub async fn dir_handler(shared: &SharedData, res: Http1Socket,path: &str) -> HttpResult<()> {
+pub async fn dir_handler<N:Stream,S:HttpSocket<N>>(shared: &SharedData, res: S,path: &str) -> HttpResult<()> {
     let mut dir = fs::read_dir(&path).await?;
     let mut file: String = "".to_string();
 
