@@ -9,3 +9,7 @@ static content webserver
 ## Usage
 `./static-runtime port directory`
 example: `./static-runtime localhost:4096 ./static/`
+
+
+## TODO
+1. [ ] tls support
