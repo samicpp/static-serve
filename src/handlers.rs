@@ -15,7 +15,7 @@ pub async fn handler<S:HttpSocket>(shared: &SharedData, mut req: S) -> HttpResul
 
     let serve_dir=&shared.serve_dir;
 
-    let client=match req.get_client().await{
+    let client=match req.read_client().await{
         Err(err)=>{
             eprintln!("error at Http1Socket::update_client() \n{:?}",err);
             HttpClient::empty()
