@@ -6,7 +6,7 @@ use rust_http::{
     http1::handler::Http1Socket, /*listener,*/ common::HttpSocket,
     common::Stream,
 };
-use tokio::net::TcpStream;
+// use tokio::net::TcpStream;
 
 use std::{
     env,
@@ -20,10 +20,10 @@ use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{certs, pkcs8_private_keys, rsa_private_keys};
 use std::{fs::File, io::BufReader};
 use tokio::{
-    io::{AsyncRead, AsyncWrite},
+    // io::{AsyncRead, AsyncWrite},
     net::TcpListener,
 };
-use tokio_rustls::{server::TlsStream, TlsAcceptor};
+use tokio_rustls::{/*server::TlsStream,*/ TlsAcceptor};
 
 // impl Stream for tokio_rustls::TlsStream<TcpStream>{}
 
@@ -176,7 +176,7 @@ async fn main()->std::io::Result<()> {
             let acceptor = acc.clone();
             tokio::spawn(async move {
                 match acceptor.accept(socket).await{
-                    Ok(mut tls_sock)=>{
+                    Ok(tls_sock)=>{
                         let hand=Http1Socket::new(tls_sock,addr);
                         listener(shared, hand).await;
                     },
