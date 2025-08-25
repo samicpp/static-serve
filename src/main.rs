@@ -3,7 +3,7 @@ mod handlers;
 mod structs;
 
 use rust_http::{
-    http1::handler::Http1Socket, /*listener,*/ common::HttpSocket,
+    http1::handler::Http1Socket, /*listener, common::HttpSocket,*/ common::HttpConstructor,
     common::Stream,
 };
 // use tokio::net::TcpStream;

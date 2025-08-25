@@ -8,9 +8,9 @@ use std::{
     path::{Component, Path, PathBuf}
 };
 
-use rust_http::common::{HttpClient, HttpResult, HttpSocket, Stream};
+use rust_http::common::{HttpClient, HttpResult, HttpSocket, /*HttpConstructor, Stream*/};
 
-pub async fn handler<N:Stream,S:HttpSocket<N>>(shared: &SharedData, mut req: S) -> HttpResult<()> {
+pub async fn handler<S:HttpSocket>(shared: &SharedData, mut req: S) -> HttpResult<()> {
     println!("Serving connection");
 
     let serve_dir=&shared.serve_dir;
@@ -68,7 +68,7 @@ pub async fn handler<N:Stream,S:HttpSocket<N>>(shared: &SharedData, mut req: S) 
     }
 }
 
-pub async fn error_handler<N:Stream,S:HttpSocket<N>>(_shared: &SharedData,code: u16, err: std::io::Error, mut req: S) -> HttpResult<()>{
+pub async fn error_handler<S:HttpSocket>(_shared: &SharedData,code: u16, err: std::io::Error, mut req: S) -> HttpResult<()>{
     eprintln!("Error of status {} occoured\n\x1b[31m{}\x1b[0m",code,err);
     match code {
         404 => {
@@ -110,7 +110,7 @@ pub async fn error_handler<N:Stream,S:HttpSocket<N>>(_shared: &SharedData,code: 
     }
 }
 
-pub async fn file_handler<N:Stream,S:HttpSocket<N>>(shared: &SharedData, path: &str, mut res: S) -> HttpResult<()> {
+pub async fn file_handler<S:HttpSocket>(shared: &SharedData, path: &str, mut res: S) -> HttpResult<()> {
     let mime=&shared.mime;
     let mut file = File::open(path).await.unwrap();
     // let mut buffer = vec![];
@@ -144,7 +144,7 @@ pub async fn file_handler<N:Stream,S:HttpSocket<N>>(shared: &SharedData, path: &
     Ok(())
 }
 
-pub async fn dir_handler<N:Stream,S:HttpSocket<N>>(shared: &SharedData, res: S,path: &str) -> HttpResult<()> {
+pub async fn dir_handler<S:HttpSocket>(shared: &SharedData, res: S,path: &str) -> HttpResult<()> {
     let mut dir = fs::read_dir(&path).await?;
     let mut file: String = "".to_string();
 
