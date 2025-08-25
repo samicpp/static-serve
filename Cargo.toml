@@ -9,3 +9,8 @@ tokio = { version = "1", features = ["full"] }
 rust_http = { path = "./rust-http" }
 ctrlc = "3.4.7"
 dotenvy = "0.15.7"
+
+tokio-rustls = "0.23"
+rustls = "0.20"
+rustls-pemfile = "1.0"
+# anyhow = "1.0"
