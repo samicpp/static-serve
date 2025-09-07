@@ -3,8 +3,7 @@ mod handlers;
 mod structs;
 
 use rust_http::{
-    http1::handler::Http1Socket, /*listener, common::HttpSocket,*/ common::HttpConstructor,
-    common::Stream,
+    common::{HttpConstructor, HttpResult, HttpSocket, Stream}, http1::handler::Http1Socket, http2::{Http2FrameSettings, Http2Handler, Http2Session}
 };
 // use tokio::net::TcpStream;
 
@@ -26,6 +25,15 @@ use tokio::{
 use tokio_rustls::{/*server::TlsStream,*/ TlsAcceptor};
 
 // impl Stream for tokio_rustls::TlsStream<TcpStream>{}
+
+const SETTINGS:Http2FrameSettings=Http2FrameSettings{
+    header_table_size: None,
+    enable_push: None,
+    max_concurrent_streams: None,
+    initial_window_size: None,
+    max_frame_size: None,
+    max_header_list_size: None,
+};
 
 fn load_certs(path: &str) -> std::io::Result<Vec<Certificate>> {
     let f = File::open(path)?;
@@ -85,7 +93,7 @@ async fn main()->std::io::Result<()> {
         Ok(_)=>(),
     };
     let mut serve_dir: String = env::var("SERVE_DIR").unwrap_or("./public".to_string());
-    let mut address = env::var("ADDRESS").unwrap_or("0.0.0.0:1024".to_string());
+    let mut address = env::var("ADDRESS").unwrap_or("0.0.0.0:8000".to_string());
     
     let mut cert_path = env::var("CERT_PATH").unwrap_or("localhost.crt".to_string());
     let mut key_path = env::var("KEY_PATH").unwrap_or("localhost.key".to_string());
@@ -96,7 +104,7 @@ async fn main()->std::io::Result<()> {
         println!("\t");
         println!("\x1b[32musage\x1b[0m: {} address directory tls_key_path tls_cert_path",args[0]);
         println!("\x1b[33mexample\x1b[0m: {} 0.0.0.0:2000 ./files ./key.pem ./cert.pem",args[0]);
-        println!("\x1b[34mdefault\x1b[0m: {} 0.0.0.0:1024 ./public ./localhost.key ./localhost.crt",args[0]);
+        println!("\x1b[34mdefault\x1b[0m: {} 0.0.0.0:8000 ./public ./localhost.key ./localhost.crt",args[0]);
         println!("\x1b[35mparameters can also be passed down through environmental variable ADDRESS, SERVE_DIR, KEY_PATH, and CERT_PATH\x1b[0m");
         println!("\x1b[36m.env files for vars supported\x1b[0m");
         println!("\t");
@@ -127,7 +135,7 @@ async fn main()->std::io::Result<()> {
             .with_single_cert(certs,key).ok();
         match sco{
             Some(mut sc)=>{
-                sc.alpn_protocols=vec![b"http/1.1".to_vec()];
+                sc.alpn_protocols=vec![b"h2".to_vec(),b"http/1.1".to_vec()];
                 let acc=TlsAcceptor::from(Arc::new(sc));
                 Some(acc)
             },
@@ -177,8 +185,25 @@ async fn main()->std::io::Result<()> {
             tokio::spawn(async move {
                 match acceptor.accept(socket).await{
                     Ok(tls_sock)=>{
-                        let hand=Http1Socket::new(tls_sock,addr);
-                        listener(shared, hand).await;
+                        let alpn = tls_sock.get_ref().1.alpn_protocol().map(|v| String::from_utf8_lossy(v).to_string());
+                        match alpn.as_deref(){
+                            Some("h2")=>{
+                                println!("http2");
+                                let h2=Http2Session::new(tls_sock, addr);
+                                let h2=Arc::new(h2);
+                                match h2_wrapper(shared, h2).await{
+                                    Ok(_)=>(),
+                                    Err(e)=>eprintln!("h2 handler error {e:?}"),
+                                }
+                            },
+                            _=>{
+                                let hand=Http1Socket::new(tls_sock,addr);
+                                match h2c_or_plain(shared,hand).await{
+                                    Ok(_)=>(),
+                                    Err(e)=>eprintln!("could not complete h2c detection {e:?}"),
+                                };
+                            }
+                        };
                     },
                     Err(err)=>{
                         eprintln!("tls handshake failed {:?}",err);
@@ -188,7 +213,10 @@ async fn main()->std::io::Result<()> {
         } else if shared.tls_acceptor.is_none(){
             let hand=Http1Socket::new(socket,addr);
             tokio::spawn(async move {
-                listener(shared,hand).await;
+                match h2c_or_plain(shared,hand).await{
+                    Ok(_)=>(),
+                    Err(e)=>eprintln!("could not complete h2c detection {e:?}"),
+                };
             });
         }
     }
@@ -199,8 +227,68 @@ async fn main()->std::io::Result<()> {
     // Ok(())
 }
 
-async fn listener<S>(shared:Arc<SharedData>,hand:Http1Socket<S>)
-where S: Stream
+async fn h2c_or_plain<S:Stream+'static>(shared: Arc<SharedData>, mut hand: Http1Socket<S>)->HttpResult<()>{
+    match hand.read_client().await{
+        Ok(client)=>{
+            if client.headers.get("upgrade").map_or(false, |u|u[0]=="h2c"){
+                let h2=hand.h2c().await?;
+                let h2=Arc::new(h2);
+                let mut f=h2.init().await?;
+                h2.send_settings(0, SETTINGS).await?;
+                h2.flush().await?;
+
+                let mut new=h2.handle_frames(f.clone()).await?;
+
+                let hand=Http2Handler::new(1, Arc::clone(&h2));
+                let shared2=Arc::clone(&shared);
+                tokio::spawn(async move {
+                    listener(Arc::clone(&shared2), hand).await;
+                });
+                f.clear();
+                loop{
+                    for stream_id in new{
+                        let hand=Http2Handler::new(stream_id, Arc::clone(&h2));
+                        let shared=Arc::clone(&shared);
+                        tokio::spawn(async move {
+                            listener(Arc::clone(&shared), hand).await;
+                        });
+                    };
+                    new=h2.handle_frames(f).await?;
+                    f=h2.incoming_frames().await.expect("error reading frames");
+                    if f.len()==0{ println!("\x1b[31mhttp2 connection closed\x1b[0m"); return Ok(()) };
+                }
+            }
+        },
+        Err(e)=>{
+            eprintln!("couldnt read client {e:?}");
+            println!("proceed as normal (http1.1)");
+        }
+    };
+    listener(shared, hand).await;
+    Ok(())
+}
+
+async fn h2_wrapper<S:Stream+'static>(shared: Arc<SharedData>, h2: Arc<Http2Session<'static,S>>)->HttpResult<()>{
+    let mut f=h2.init().await?;
+    h2.send_settings(0, SETTINGS).await?;
+
+    loop{
+        if f.len()==0{ println!("\x1b[31mhttp2 connection closed\x1b[0m"); break };
+        let new=h2.handle_frames(f.clone()).await?;
+        for stream_id in new{
+            let hand=Http2Handler::new(stream_id, Arc::clone(&h2));
+            let shared=Arc::clone(&shared);
+            tokio::spawn(async move {
+                listener(Arc::clone(&shared), hand).await;
+            });
+        };
+        f=h2.incoming_frames().await.expect("error reading frames");
+    }
+    Ok(())
+}
+
+async fn listener(shared:Arc<SharedData>, hand: impl HttpSocket)
+// where S: HttpSocket
 {
     let shared=Arc::clone(&shared);
         

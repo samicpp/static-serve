@@ -8,20 +8,27 @@ use std::{
     path::{Component, Path, PathBuf}
 };
 
-use rust_http::common::{HttpClient, HttpResult, HttpSocket, /*HttpConstructor, Stream*/};
+use rust_http::common::{Compression, HttpClient, HttpResult, HttpSocket /*HttpConstructor, Stream*/};
 
 pub async fn handler<S:HttpSocket>(shared: &SharedData, mut req: S) -> HttpResult<()> {
     println!("Serving connection");
 
     let serve_dir=&shared.serve_dir;
 
-    let client=match req.read_client().await{
+    let client=match req.get_client().await{
         Err(err)=>{
             eprintln!("error at Http1Socket::update_client() \n{:?}",err);
             HttpClient::empty()
         },
         Ok(c)=>c.clone(),
     };
+
+    if let Some(ae)=client.headers.get("accept-encoding"){
+        let s=ae.join(" ");
+        if s.contains("gzip"){ 
+            req.set_compression(Compression::Gzip).unwrap();  
+        }
+    }
 
     let full_path: String = { 
         let full_path: String = client.path.clone();
