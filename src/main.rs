@@ -239,17 +239,19 @@ async fn h2c_or_plain<S:Stream+'static>(shared: Arc<SharedData>, mut hand: Http1
 
                 let mut new=h2.handle_frames(f.clone()).await?;
 
-                let hand=Http2Handler::new(1, Arc::clone(&h2));
+                let mut hand=Http2Handler::new(1, Arc::clone(&h2));
                 let shared2=Arc::clone(&shared);
                 tokio::spawn(async move {
+                    let _=hand.read_client().await;
                     listener(Arc::clone(&shared2), hand).await;
                 });
                 f.clear();
                 loop{
                     for stream_id in new{
-                        let hand=Http2Handler::new(stream_id, Arc::clone(&h2));
+                        let mut hand=Http2Handler::new(stream_id, Arc::clone(&h2));
                         let shared=Arc::clone(&shared);
                         tokio::spawn(async move {
+                            let _=hand.read_client().await;
                             listener(Arc::clone(&shared), hand).await;
                         });
                     };
@@ -276,9 +278,10 @@ async fn h2_wrapper<S:Stream+'static>(shared: Arc<SharedData>, h2: Arc<Http2Sess
         if f.len()==0{ println!("\x1b[31mhttp2 connection closed\x1b[0m"); break };
         let new=h2.handle_frames(f.clone()).await?;
         for stream_id in new{
-            let hand=Http2Handler::new(stream_id, Arc::clone(&h2));
+            let mut hand=Http2Handler::new(stream_id, Arc::clone(&h2));
             let shared=Arc::clone(&shared);
             tokio::spawn(async move {
+                let _=hand.read_client().await;
                 listener(Arc::clone(&shared), hand).await;
             });
         };
