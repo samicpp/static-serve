@@ -3,7 +3,7 @@ mod handlers;
 mod structs;
 
 use rust_http::{
-    common::{HttpConstructor, HttpResult, HttpSocket, Stream}, http1::handler::Http1Socket, http2::{Http2FrameSettings, Http2Handler, Http2Session}
+    common::{HttpConstructor, /*HttpError,*/ HttpResult, HttpSocket, Stream}, http1::handler::Http1Socket, http2::{Http2FrameSettings, Http2FrameType, Http2Handler, Http2Session}
 };
 // use tokio::net::TcpStream;
 
@@ -27,7 +27,7 @@ use tokio_rustls::{/*server::TlsStream,*/ TlsAcceptor};
 // impl Stream for tokio_rustls::TlsStream<TcpStream>{}
 
 const SETTINGS:Http2FrameSettings=Http2FrameSettings{
-    header_table_size: None,
+    header_table_size: Some(16777215),
     enable_push: None,
     max_concurrent_streams: None,
     initial_window_size: None,
@@ -188,7 +188,7 @@ async fn main()->std::io::Result<()> {
                         let alpn = tls_sock.get_ref().1.alpn_protocol().map(|v| String::from_utf8_lossy(v).to_string());
                         match alpn.as_deref(){
                             Some("h2")=>{
-                                println!("http2");
+                                println!("\x1b[35mexplicitly use http/2\x1b[0m");
                                 let h2=Http2Session::new(tls_sock, addr);
                                 let h2=Arc::new(h2);
                                 match h2_wrapper(shared, h2).await{
@@ -196,7 +196,14 @@ async fn main()->std::io::Result<()> {
                                     Err(e)=>eprintln!("h2 handler error {e:?}"),
                                 }
                             },
-                            _=>{
+                            Some("http/1.1")=>{
+                                println!("\x1b[35mexplicitly use http/1.1\x1b[0m");
+                                let mut hand=Http1Socket::new(tls_sock,addr);
+                                let _=hand.read_client().await;
+                                listener(shared, hand).await;
+                            },
+                            a=>{
+                                println!("\x1b[35munknown alpn {a:?}\x1b[0m");
                                 let hand=Http1Socket::new(tls_sock,addr);
                                 match h2c_or_plain(shared,hand).await{
                                     Ok(_)=>(),
@@ -273,14 +280,44 @@ async fn h2c_or_plain<S:Stream+'static>(shared: Arc<SharedData>, mut hand: Http1
 async fn h2_wrapper<S:Stream+'static>(shared: Arc<SharedData>, h2: Arc<Http2Session<'static,S>>)->HttpResult<()>{
     let mut f=h2.init().await?;
     h2.send_settings(0, SETTINGS).await?;
+    
+    let mut hpackd=h2.hpackd.lock().await;
+    hpackd.set_max_table_size(16777215);
+    drop(hpackd);
 
     loop{
         if f.len()==0{ println!("\x1b[31mhttp2 connection closed\x1b[0m"); break };
+        for frame in &f{
+            // if frame.flags.acknowledge { continue }
+            println!("type = \x1b[34m{:?}\x1b[0m",frame.ftype);
+            println!("flags = {:?}",frame.flags);
+            // println!("frame = {:?}",frame);
+            match frame.ftype{
+                Http2FrameType::Headers=>{
+                    // let dec=h2.hpack_decode(frame.get_payload()).await.unwrap();
+                    // for (h,v) in dec{
+                    //     println!("{}: {}",String::from_utf8_lossy(&h),String::from_utf8_lossy(&v));
+                    // }
+                },
+                _=>()
+            }
+        };
         let new=h2.handle_frames(f.clone()).await?;
         for stream_id in new{
+            println!("new stream opened {stream_id}");
             let mut hand=Http2Handler::new(stream_id, Arc::clone(&h2));
             let shared=Arc::clone(&shared);
+            // let h2=Arc::clone(&h2);
             tokio::spawn(async move {
+                // loop{
+                //     let streams=h2.streams.lock().await;
+                //     let stream=streams.get(&stream_id).ok_or(HttpError::StreamDoesntExist).unwrap();
+                //     if stream.end_headers { break };
+                //     drop(streams);
+                //     let f=h2.incoming_frames().await.unwrap();
+                //     if f.is_empty(){break}
+                //     h2.handle_frames(f).await.unwrap();
+                // }
                 let _=hand.read_client().await;
                 listener(Arc::clone(&shared), hand).await;
             });

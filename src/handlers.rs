@@ -23,6 +23,8 @@ pub async fn handler<S:HttpSocket>(shared: &SharedData, mut req: S) -> HttpResul
         Ok(c)=>c.clone(),
     };
 
+    dbg!(&client);
+
     if let Some(ae)=client.headers.get("accept-encoding"){
         let s=ae.join(" ");
         if s.contains("gzip"){ 
@@ -167,7 +169,7 @@ pub async fn dir_handler<S:HttpSocket>(shared: &SharedData, res: S,path: &str) -
             continue; // Mitigate dirs treated as files
         }
 
-        println!("Directory entry {}\n{:?}",file_name,entry);
+        // println!("Directory entry {}\n{:?}",file_name,entry);
 
         if file_name.starts_with("index.") || file_name == "index" || (!last_dir.is_empty() && file_name.starts_with(last_dir)) {
             // file = path.to_owned() + "/" + &file_name;
