@@ -98,6 +98,23 @@ async fn main()->std::io::Result<()> {
     let mut cert_path = env::var("CERT_PATH").unwrap_or("localhost.crt".to_string());
     let mut key_path = env::var("KEY_PATH").unwrap_or("localhost.key".to_string());
 
+    let h2_enabled = env::var("ALLOW_HTTP2").map(|v|{
+        match v.to_lowercase().as_str() {
+            "yes" | "y" | "1" | "true" => true,
+
+            _=>false,
+        }
+    }).unwrap_or(true);
+    let h2_priority = if h2_enabled==false{false}else{
+            env::var("H2_FIRST").map(|v|{
+            match v.to_lowercase().as_str() {
+                "yes" | "y" | "1" | "true" => true,
+
+                _=>false,
+            }
+        }).unwrap_or(false)
+    };
+
     let args: Vec<String> = env::args().collect();
 
     if args.len()==2 && (args[1]=="-h"||args[1]=="--help"){
@@ -105,8 +122,10 @@ async fn main()->std::io::Result<()> {
         println!("\x1b[32musage\x1b[0m: {} address directory tls_key_path tls_cert_path",args[0]);
         println!("\x1b[33mexample\x1b[0m: {} 0.0.0.0:2000 ./files ./key.pem ./cert.pem",args[0]);
         println!("\x1b[34mdefault\x1b[0m: {} 0.0.0.0:8000 ./public ./localhost.key ./localhost.crt",args[0]);
-        println!("\x1b[35mparameters can also be passed down through environmental variable ADDRESS, SERVE_DIR, KEY_PATH, and CERT_PATH\x1b[0m");
-        println!("\x1b[36m.env files for vars supported\x1b[0m");
+        println!("\x1b[35mthese parameters can also be passed down through environmental variable ADDRESS, SERVE_DIR, KEY_PATH, and CERT_PATH\x1b[0m");
+        println!("env ALLOW_HTTP2: decides wether http2 is used at all. true by default");
+        println!("env H2_FIRST: indicates which protocol comes first in alpn negotiation. false by default");
+        println!("\x1b[36m.env file for parameters supported\x1b[0m");
         println!("\t");
         std::process::exit(0);
         // return Ok(())
@@ -135,7 +154,10 @@ async fn main()->std::io::Result<()> {
             .with_single_cert(certs,key).ok();
         match sco{
             Some(mut sc)=>{
-                sc.alpn_protocols=vec![b"h2".to_vec(),b"http/1.1".to_vec()];
+                sc.alpn_protocols=vec![b"http/1.1".to_vec()];
+                if h2_enabled&&h2_priority { sc.alpn_protocols=vec![b"h2".to_vec(),b"http/1.1".to_vec()] };
+                if h2_enabled { sc.alpn_protocols.push(b"h2".to_vec()) };
+                // sc.alpn_protocols=vec![b"h2".to_vec(),b"http/1.1".to_vec()];
                 let acc=TlsAcceptor::from(Arc::new(sc));
                 Some(acc)
             },
@@ -176,7 +198,9 @@ async fn main()->std::io::Result<()> {
     println!("http://{}/",&address);
     // listener::http_listener(&address, listener).await.unwrap();
     let server = TcpListener::bind(&address).await?;
+    // let h2_enabled=h2_enabled.clone();
     loop{
+        let h2_enabled=h2_enabled.clone();
         let (socket, addr) = server.accept().await?;
         let shared=Arc::clone(&shared);
         //let listener=listener.clone();
@@ -219,11 +243,16 @@ async fn main()->std::io::Result<()> {
             });
         } else if shared.tls_acceptor.is_none(){
             let hand=Http1Socket::new(socket,addr);
+            
             tokio::spawn(async move {
-                match h2c_or_plain(shared,hand).await{
-                    Ok(_)=>(),
-                    Err(e)=>eprintln!("could not complete h2c detection {e:?}"),
-                };
+                if h2_enabled{
+                    match h2c_or_plain(shared,hand).await{
+                        Ok(_)=>(),
+                        Err(e)=>eprintln!("could not complete h2c detection {e:?}"),
+                    };
+                } else {
+                    listener(shared, hand).await;
+                }
             });
         }
     }
