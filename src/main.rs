@@ -1,6 +1,7 @@
 mod mime_map;
 mod handlers;
 mod structs;
+mod middleware;
 
 use rust_http::{
     common::{HttpConstructor, /*HttpError,*/ HttpResult, HttpSocket, Stream}, http1::handler::Http1Socket, http2::{Http2FrameSettings, Http2FrameType, Http2Handler, Http2Session}

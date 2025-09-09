@@ -1,4 +1,4 @@
-use crate::{structs::SharedData, /*Http1Socket*/};
+use crate::{middleware, structs::SharedData /*Http1Socket*/};
 
 use tokio::{
     fs::{self, File}, io::AsyncReadExt,
@@ -23,7 +23,7 @@ pub async fn handler<S:HttpSocket>(shared: &SharedData, mut req: S) -> HttpResul
         Ok(c)=>c.clone(),
     };
 
-    dbg!(&client);
+    // dbg!(&client);
 
     if let Some(ae)=client.headers.get("accept-encoding"){
         let s=ae.join(" ");
@@ -52,28 +52,37 @@ pub async fn handler<S:HttpSocket>(shared: &SharedData, mut req: S) -> HttpResul
 
         serve_dir.to_owned() + &full_path.to_string()
     };
-    println!("Full path: {}", full_path);
+    println!("Full path: {}", &full_path);
 
-    
-    
-    let info_res = fs::metadata(&full_path).await;
-    match info_res{
-        Ok(info) => {
-            if info.is_file() {
-                file_handler(shared, &full_path,req).await
-            } else if info.is_dir(){
-                dir_handler(shared, req, &full_path).await
-            } else {
-                error_handler(shared, 409, std::io::Error::new(std::io::ErrorKind::Unsupported, "File is unusable"), req).await
-            }
-        },
-        Err(err) => {
-            if err.kind() == std::io::ErrorKind::NotFound {
-                error_handler(shared,404, err, req).await
-            } else {
-                error_handler(shared,500, err, req).await
-            }
-        },
+
+    if let Some(n)=middleware::available(&full_path){
+        println!("Middleware available: {}", n);
+        
+        match middleware::call(n, shared, &full_path, req).await{
+            Ok(_)=>println!("middleware did not error"),
+            Err(e)=>eprintln!("\x1b[31mmiddleware errored\x1b[0m {}",e),
+        };
+        Ok(())
+    } else {
+        let info_res = fs::metadata(&full_path).await;
+        match info_res{
+            Ok(info) => {
+                if info.is_file() {
+                    file_handler(shared, &full_path,req).await
+                } else if info.is_dir(){
+                    dir_handler(shared, req, &full_path).await
+                } else {
+                    error_handler(shared, 409, std::io::Error::new(std::io::ErrorKind::Unsupported, "File is unusable"), req).await
+                }
+            },
+            Err(err) => {
+                if err.kind() == std::io::ErrorKind::NotFound {
+                    error_handler(shared,404, err, req).await
+                } else {
+                    error_handler(shared,500, err, req).await
+                }
+            },
+        }
     }
 }
 
