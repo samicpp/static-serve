@@ -55,7 +55,7 @@ pub async fn handler<S:HttpSocket>(shared: &SharedData, mut req: S) -> HttpResul
     println!("Full path: {}", &full_path);
 
 
-    if let Some(n)=middleware::available(&full_path){
+    if let Some(n)=middleware::available(&client.path){
         println!("Middleware available: {}", n);
         
         match middleware::call(n, shared, &full_path, req).await{
