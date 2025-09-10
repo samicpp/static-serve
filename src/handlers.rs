@@ -10,7 +10,7 @@ use std::{
 
 use rust_http::common::{Compression, HttpClient, HttpResult, HttpSocket /*HttpConstructor, Stream*/};
 
-pub async fn handler<S:HttpSocket>(shared: &SharedData, mut req: S) -> HttpResult<()> {
+pub async fn handler<S:HttpSocket+Sized+Send+'static>(shared: &SharedData, mut req: S) -> HttpResult<()> {
     println!("Serving connection");
 
     let serve_dir=&shared.serve_dir;

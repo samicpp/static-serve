@@ -9,9 +9,7 @@ use rust_http::{
 // use tokio::net::TcpStream;
 
 use std::{
-    env,
-    path::Path,
-    sync::Arc, time::{Instant},
+    env, future::Future, path::Path, sync::Arc, time::Instant
 };
 
 use crate::{mime_map::mime_map, structs::SharedData};
@@ -335,33 +333,40 @@ async fn h2_wrapper<S:Stream+'static>(shared: Arc<SharedData>, h2: Arc<Http2Sess
         let new=h2.handle_frames(f.clone()).await?;
         for stream_id in new{
             println!("new stream opened {stream_id}");
-            let mut hand=Http2Handler::new(stream_id, Arc::clone(&h2));
+            let mut hand: Http2Handler<'static, S>=Http2Handler::new(stream_id, Arc::clone(&h2));
             let shared=Arc::clone(&shared);
             // let h2=Arc::clone(&h2);
+            let _=hand.read_client().await;
+            let shared = Arc::clone(&shared);
             tokio::spawn(async move {
-                // loop{
-                //     let streams=h2.streams.lock().await;
-                //     let stream=streams.get(&stream_id).ok_or(HttpError::StreamDoesntExist).unwrap();
-                //     if stream.end_headers { break };
-                //     drop(streams);
-                //     let f=h2.incoming_frames().await.unwrap();
-                //     if f.is_empty(){break}
-                //     h2.handle_frames(f).await.unwrap();
-                // }
-                let _=hand.read_client().await;
-                listener(Arc::clone(&shared), hand).await;
+                listener(shared, hand).await
             });
+
+            // tokio::spawn(async move {
+            //     // loop{
+            //     //     let streams=h2.streams.lock().await;
+            //     //     let stream=streams.get(&stream_id).ok_or(HttpError::StreamDoesntExist).unwrap();
+            //     //     if stream.end_headers { break };
+            //     //     drop(streams);
+            //     //     let f=h2.incoming_frames().await.unwrap();
+            //     //     if f.is_empty(){break}
+            //     //     h2.handle_frames(f).await.unwrap();
+            //     // }
+            //     let _=hand.read_client().await;
+            //     listener(Arc::clone(&shared), hand).await;
+            // });
         };
         f=h2.incoming_frames().await.expect("error reading frames");
     }
     Ok(())
 }
 
-async fn listener(shared:Arc<SharedData>, hand: impl HttpSocket)
+async fn listener<'a>(shared:Arc<SharedData>, hand: impl HttpSocket+Send+'static)
 // where S: HttpSocket
 {
+    // async move {
     let shared=Arc::clone(&shared);
-        
+    
     let now=Instant::now();
     let res = handlers::handler(&shared, hand).await;
     println!("\x1b[36mhandler took {}ms\x1b[0m",now.elapsed().as_nanos() as f64 /1000000.0);
@@ -369,4 +374,5 @@ async fn listener(shared:Arc<SharedData>, hand: impl HttpSocket)
         Ok(())=>println!("\x1b[32mhandler didnt error\x1b[0m"),
         Err(err)=>eprintln!("\x1b[31mhandler errored\n{:?}\x1b[0m",err),
     };
+    // }
 }

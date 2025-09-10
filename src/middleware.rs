@@ -1,4 +1,4 @@
-use rust_http::common::{HttpError, HttpResult, HttpSocket};
+use rust_http::{common::{HttpError, HttpResult, HttpSocket, HttpType, /*Stream*/}, websocket::WebSocketFrameType};
 
 use crate::structs::SharedData;
 // use std::{collections::HashMap};
@@ -7,13 +7,15 @@ use crate::structs::SharedData;
 pub fn available(path: &str)->Option<&'static str>{
     match path{
         s if s.starts_with("/internal/example")=>Some("example"),
+        s if s.starts_with("/websocket/echo")=>Some("ws-echo"),
         _=>None,
     }
 }
 
-pub async fn call<S:HttpSocket>(name: &str, shared: &SharedData, path: &str, mut res: S)->HttpResult<()>{
+pub async fn call<S:HttpSocket+Sized+Send+'static>(name: &str, shared: &SharedData, path: &str, mut res: S)->HttpResult<()>{
     match name{
         "example"=>example(shared, path, res).await,
+        "ws-echo"=>ws_echo(shared, path, res).await,
         _=>{
             res.set_status(500, "Internal server error".to_owned())?;
             res.close(b"Internal server error\n\nendpoint does not exist\n").await?;
@@ -22,10 +24,52 @@ pub async fn call<S:HttpSocket>(name: &str, shared: &SharedData, path: &str, mut
     }
 }
 
+
 async fn example<S:HttpSocket>(_shared: &SharedData, _path: &str, mut res: S)->HttpResult<()>{
     res.close(b"example endpoint\n").await
 }
 
+async fn ws_echo<S:HttpSocket+Sized+Send+'static>(_shared: &SharedData, _path: &str, mut res: S)->HttpResult<()>{
+    let c=res.get_client().await?;
+    match c.headers.get("upgrade").map(|h|h[0].as_str()).as_deref(){
+        Some("websocket")=>{
+            if res.r#type()==HttpType::Http1{
+                // let res=res.get_http1();
+                // let mut ws=res.websocket().await?;
+                // loop{
+                //     let frames=ws.incoming().await?;
+                //     if frames.is_empty(){ break }
+                //     for frame in frames{
+                //         match frame.ftype{
+                //             WebSocketFrameType::Ping=>ws.send_pong(frame.get_payload()).await?,
+                //             WebSocketFrameType::Text=>ws.send_text(frame.get_payload()).await?,
+                //             WebSocketFrameType::Binary=>ws.send_text(frame.get_payload()).await?,
+                //             _=>()
+                //         }
+                //     }
+                // }
+            } else {
+                res.close(b"websocket").await?;
+            }
+            // let mut ws=res.websocket().await?;
+            // loop{
+            //     let frames=ws.incoming().await?;
+            //     if frames.is_empty(){ break }
+            //     for frame in frames{
+            //         match frame.ftype{
+            //             WebSocketFrameType::Ping=>ws.send_pong(frame.get_payload()).await?,
+            //             WebSocketFrameType::Text=>ws.send_text(frame.get_payload()).await?,
+            //             WebSocketFrameType::Binary=>ws.send_text(frame.get_payload()).await?,
+            //             _=>()
+            //         }
+            //     }
+            // }
+            Ok(())
+        },
+        _=>res.close(b"websocket").await,
+    }
+    // Ok(())
+}
 
 
 // pub type Middleware<S> = fn(&SharedData, &str, S) -> std::pin::Pin<Box<dyn std::future::Future<Output = HttpResult<()>> + Send>>;
