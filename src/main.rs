@@ -12,16 +12,13 @@ use std::{
     env, path::Path, sync::Arc, time::Instant
 };
 
-use crate::{mime_map::mime_map, structs::SharedData};
+use crate::{middleware::MiddlewareData, mime_map::mime_map, structs::SharedData};
 
 use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{certs, pkcs8_private_keys, rsa_private_keys};
 use std::{fs::File, io::BufReader};
-use tokio::{
-    // io::{AsyncRead, AsyncWrite},
-    net::TcpListener,
-};
-use tokio_rustls::{/*server::TlsStream,*/ TlsAcceptor};
+use tokio::net::{TcpListener, TcpStream};
+use tokio_rustls::{/*server::TlsStream,*/ server::TlsStream, TlsAcceptor};
 
 // impl Stream for tokio_rustls::TlsStream<TcpStream>{}
 
@@ -172,7 +169,13 @@ async fn main()->std::io::Result<()> {
         serve_dir,
         tls_acceptor: tls_config,
     });
-
+    let middleware_data_tls=Arc::new(MiddlewareData::<TlsStream<TcpStream>>{
+        ..MiddlewareData::empty()
+    });
+    let middleware_data_tcp=Arc::new(MiddlewareData::<TcpStream>{
+        ..MiddlewareData::empty()
+    });
+    
     // let listener = {
     //     let shared=Arc::clone(&shared);
     //     move |conn: Http1Socket<TcpStream>| {
@@ -198,6 +201,7 @@ async fn main()->std::io::Result<()> {
     // listener::http_listener(&address, listener).await.unwrap();
     let server = TcpListener::bind(&address).await?;
     // let h2_enabled=h2_enabled.clone();
+    
     loop{
         let h2_enabled=h2_enabled.clone();
         let (socket, addr) = server.accept().await?;
@@ -205,16 +209,18 @@ async fn main()->std::io::Result<()> {
         //let listener=listener.clone();
         if let Some(acc)=&shared.tls_acceptor{
             let acceptor = acc.clone();
+            let middleware_data_tls=Arc::clone(&middleware_data_tls);
             tokio::spawn(async move {
                 match acceptor.accept(socket).await{
                     Ok(tls_sock)=>{
+                        // let tls_sock: tokio_rustls::server::TlsStream<tokio::net::TcpStream>=tls_sock;
                         let alpn = tls_sock.get_ref().1.alpn_protocol().map(|v| String::from_utf8_lossy(v).to_string());
                         match alpn.as_deref(){
                             Some("h2")=>{
                                 println!("\x1b[35mexplicitly use http/2\x1b[0m");
                                 let h2=Http2Session::new(tls_sock, addr);
                                 let h2=Arc::new(h2);
-                                match h2_wrapper(shared, h2).await{
+                                match h2_wrapper(shared, middleware_data_tls, h2).await{
                                     Ok(_)=>(),
                                     Err(e)=>eprintln!("h2 handler error {e:?}"),
                                 }
@@ -223,12 +229,12 @@ async fn main()->std::io::Result<()> {
                                 println!("\x1b[35mexplicitly use http/1.1\x1b[0m");
                                 let mut hand=Http1Socket::new(tls_sock,addr);
                                 let _=hand.read_client().await;
-                                listener(shared, hand).await;
+                                listener(shared, middleware_data_tls, hand).await;
                             },
                             a=>{
                                 println!("\x1b[35munknown alpn {a:?}\x1b[0m");
                                 let hand=Http1Socket::new(tls_sock,addr);
-                                match h2c_or_plain(shared,hand).await{
+                                match h2c_or_plain(shared, middleware_data_tls, hand).await{
                                     Ok(_)=>(),
                                     Err(e)=>eprintln!("could not complete h2c detection {e:?}"),
                                 };
@@ -242,15 +248,15 @@ async fn main()->std::io::Result<()> {
             });
         } else if shared.tls_acceptor.is_none(){
             let hand=Http1Socket::new(socket,addr);
-            
+            let middleware_data_tcp=Arc::clone(&middleware_data_tcp);
             tokio::spawn(async move {
                 if h2_enabled{
-                    match h2c_or_plain(shared,hand).await{
+                    match h2c_or_plain(shared, middleware_data_tcp, hand).await{
                         Ok(_)=>(),
                         Err(e)=>eprintln!("could not complete h2c detection {e:?}"),
                     };
                 } else {
-                    listener(shared, hand).await;
+                    listener(shared, middleware_data_tcp, hand).await;
                 }
             });
         }
@@ -262,7 +268,7 @@ async fn main()->std::io::Result<()> {
     // Ok(())
 }
 
-async fn h2c_or_plain<S:Stream+'static>(shared: Arc<SharedData>, mut hand: Http1Socket<S>)->HttpResult<()>{
+async fn h2c_or_plain<S:Stream+'static>(shared: Arc<SharedData>, middleware_data: Arc<MiddlewareData<S>>, mut hand: Http1Socket<S>)->HttpResult<()>{
     match hand.read_client().await{
         Ok(client)=>{
             if client.headers.get("upgrade").map_or(false, |u|u[0]=="h2c"){
@@ -276,18 +282,20 @@ async fn h2c_or_plain<S:Stream+'static>(shared: Arc<SharedData>, mut hand: Http1
 
                 let mut hand=Http2Handler::new(1, Arc::clone(&h2));
                 let shared2=Arc::clone(&shared);
+                let middleware_data2=Arc::clone(&middleware_data);
                 tokio::spawn(async move {
                     let _=hand.read_client().await;
-                    listener(Arc::clone(&shared2), hand).await;
+                    listener(Arc::clone(&shared2), Arc::clone(&middleware_data2), hand).await;
                 });
                 f.clear();
                 loop{
                     for stream_id in new{
                         let mut hand=Http2Handler::new(stream_id, Arc::clone(&h2));
                         let shared=Arc::clone(&shared);
+                        let middleware_data=Arc::clone(&middleware_data);
                         tokio::spawn(async move {
                             let _=hand.read_client().await;
-                            listener(Arc::clone(&shared), hand).await;
+                            listener(Arc::clone(&shared), Arc::clone(&middleware_data), hand).await;
                         });
                     };
                     new=h2.handle_frames(f).await?;
@@ -301,18 +309,18 @@ async fn h2c_or_plain<S:Stream+'static>(shared: Arc<SharedData>, mut hand: Http1
             println!("proceed as normal (http1.1)");
         }
     };
-    listener(shared, hand).await;
+    listener(shared, middleware_data, hand).await;
     Ok(())
 }
 
-async fn h2_wrapper<S:Stream+'static>(shared: Arc<SharedData>, h2: Arc<Http2Session<'static,S>>)->HttpResult<()>{
+async fn h2_wrapper<S:Stream+'static>(shared: Arc<SharedData>, middleware_data: Arc<MiddlewareData<S>>, h2: Arc<Http2Session<'static,S>>)->HttpResult<()>{
     let mut f=h2.init().await?;
     h2.send_settings(0, SETTINGS).await?;
     
     let mut hpackd=h2.hpackd.lock().await;
     hpackd.set_max_table_size(16777215);
     drop(hpackd);
-
+ 
     loop{
         if f.len()==0{ println!("\x1b[31mhttp2 connection closed\x1b[0m"); break };
         for frame in &f{
@@ -338,8 +346,9 @@ async fn h2_wrapper<S:Stream+'static>(shared: Arc<SharedData>, h2: Arc<Http2Sess
             // let h2=Arc::clone(&h2);
             let _=hand.read_client().await;
             let shared = Arc::clone(&shared);
+            let middleware_data=Arc::clone(&middleware_data);
             tokio::spawn(async move {
-                listener(shared, hand).await;
+                listener(shared, Arc::clone(&middleware_data), hand).await;
             });
 
             // tokio::spawn(async move {
@@ -361,14 +370,14 @@ async fn h2_wrapper<S:Stream+'static>(shared: Arc<SharedData>, h2: Arc<Http2Sess
     Ok(())
 }
 
-async fn listener<'a>(shared:Arc<SharedData>, hand: impl HttpSocket+Send+'static)
+async fn listener<'a,S:HttpSocket+Send+'static>(shared:Arc<SharedData>, middleware_data: Arc<MiddlewareData<S::Stream>>, hand: S)
 // where S: HttpSocket
 {
     // async move {
     let shared=Arc::clone(&shared);
     
     let now=Instant::now();
-    let res = handlers::handler(shared, hand).await;
+    let res = handlers::handler(shared, middleware_data, hand).await;
     println!("\x1b[36mhandler took {}ms\x1b[0m",now.elapsed().as_nanos() as f64 /1000000.0);
     match res {
         Ok(())=>println!("\x1b[32mhandler didnt error\x1b[0m"),

@@ -1,4 +1,4 @@
-use crate::{middleware, structs::SharedData /*Http1Socket*/};
+use crate::{middleware::{self, MiddlewareData}, structs::SharedData /*Http1Socket*/};
 
 use tokio::{
     fs::{self, File}, io::AsyncReadExt,
@@ -8,9 +8,9 @@ use std::{
     path::{Component, Path, PathBuf}, sync::Arc
 };
 
-use rust_http::common::{Compression, HttpClient, HttpResult, HttpSocket /*HttpConstructor, Stream*/};
+use rust_http::common::{Compression, HttpClient, HttpResult, HttpSocket, /*Stream, HttpConstructor,*/};
 
-pub async fn handler<S:HttpSocket+Sized+Send+'static>(shared: Arc<SharedData>, mut req: S) -> HttpResult<()> {
+pub async fn handler<S:HttpSocket+Sized+Send+'static>(shared: Arc<SharedData>, middle_data: Arc<MiddlewareData<S::Stream>>, mut req: S) -> HttpResult<()> {
     println!("Serving connection");
 
     let serve_dir=&shared.serve_dir;
@@ -58,7 +58,7 @@ pub async fn handler<S:HttpSocket+Sized+Send+'static>(shared: Arc<SharedData>, m
     if let Some(n)=middleware::available(&client.path){
         println!("Middleware available: {}", n);
         
-        match middleware::call(n, &shared, &full_path, req).await{
+        match middleware::call(n, &shared, &middle_data, &full_path, req).await{
             Ok(_)=>println!("middleware did not error"),
             Err(e)=>eprintln!("\x1b[31mmiddleware errored\x1b[0m {}",e),
         };
