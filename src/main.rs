@@ -9,7 +9,7 @@ use rust_http::{
 // use tokio::net::TcpStream;
 
 use std::{
-    env, future::Future, path::Path, sync::Arc, time::Instant
+    env, path::Path, sync::Arc, time::Instant
 };
 
 use crate::{mime_map::mime_map, structs::SharedData};
@@ -339,7 +339,7 @@ async fn h2_wrapper<S:Stream+'static>(shared: Arc<SharedData>, h2: Arc<Http2Sess
             let _=hand.read_client().await;
             let shared = Arc::clone(&shared);
             tokio::spawn(async move {
-                listener(shared, hand).await
+                listener(shared, hand).await;
             });
 
             // tokio::spawn(async move {
@@ -368,7 +368,7 @@ async fn listener<'a>(shared:Arc<SharedData>, hand: impl HttpSocket+Send+'static
     let shared=Arc::clone(&shared);
     
     let now=Instant::now();
-    let res = handlers::handler(&shared, hand).await;
+    let res = handlers::handler(shared, hand).await;
     println!("\x1b[36mhandler took {}ms\x1b[0m",now.elapsed().as_nanos() as f64 /1000000.0);
     match res {
         Ok(())=>println!("\x1b[32mhandler didnt error\x1b[0m"),

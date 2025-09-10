@@ -5,12 +5,12 @@ use tokio::{
 };
 use std::{
     // io::Read, 
-    path::{Component, Path, PathBuf}
+    path::{Component, Path, PathBuf}, sync::Arc
 };
 
 use rust_http::common::{Compression, HttpClient, HttpResult, HttpSocket /*HttpConstructor, Stream*/};
 
-pub async fn handler<S:HttpSocket+Sized+Send+'static>(shared: &SharedData, mut req: S) -> HttpResult<()> {
+pub async fn handler<S:HttpSocket+Sized+Send+'static>(shared: Arc<SharedData>, mut req: S) -> HttpResult<()> {
     println!("Serving connection");
 
     let serve_dir=&shared.serve_dir;
@@ -58,7 +58,7 @@ pub async fn handler<S:HttpSocket+Sized+Send+'static>(shared: &SharedData, mut r
     if let Some(n)=middleware::available(&client.path){
         println!("Middleware available: {}", n);
         
-        match middleware::call(n, shared, &full_path, req).await{
+        match middleware::call(n, &shared, &full_path, req).await{
             Ok(_)=>println!("middleware did not error"),
             Err(e)=>eprintln!("\x1b[31mmiddleware errored\x1b[0m {}",e),
         };
@@ -68,18 +68,18 @@ pub async fn handler<S:HttpSocket+Sized+Send+'static>(shared: &SharedData, mut r
         match info_res{
             Ok(info) => {
                 if info.is_file() {
-                    file_handler(shared, &full_path,req).await
+                    file_handler(&shared, &full_path,req).await
                 } else if info.is_dir(){
-                    dir_handler(shared, req, &full_path).await
+                    dir_handler(&shared, req, &full_path).await
                 } else {
-                    error_handler(shared, 409, std::io::Error::new(std::io::ErrorKind::Unsupported, "File is unusable"), req).await
+                    error_handler(&shared, 409, std::io::Error::new(std::io::ErrorKind::Unsupported, "File is unusable"), req).await
                 }
             },
             Err(err) => {
                 if err.kind() == std::io::ErrorKind::NotFound {
-                    error_handler(shared,404, err, req).await
+                    error_handler(&shared,404, err, req).await
                 } else {
-                    error_handler(shared,500, err, req).await
+                    error_handler(&shared,500, err, req).await
                 }
             },
         }

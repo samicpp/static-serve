@@ -1,4 +1,4 @@
-use rust_http::{common::{HttpError, HttpResult, HttpSocket, HttpType, /*Stream*/}, websocket::WebSocketFrameType};
+use rust_http::{common::{HttpError, HttpResult, HttpSocket, /*Stream*/}, websocket::WebSocketFrameType};
 
 use crate::structs::SharedData;
 // use std::{collections::HashMap};
@@ -33,23 +33,20 @@ async fn ws_echo<S:HttpSocket+Sized+Send+'static>(_shared: &SharedData, _path: &
     let c=res.get_client().await?;
     match c.headers.get("upgrade").map(|h|h[0].as_str()).as_deref(){
         Some("websocket")=>{
-            if res.r#type()==HttpType::Http1{
-                // let res=res.get_http1();
-                // let mut ws=res.websocket().await?;
-                // loop{
-                //     let frames=ws.incoming().await?;
-                //     if frames.is_empty(){ break }
-                //     for frame in frames{
-                //         match frame.ftype{
-                //             WebSocketFrameType::Ping=>ws.send_pong(frame.get_payload()).await?,
-                //             WebSocketFrameType::Text=>ws.send_text(frame.get_payload()).await?,
-                //             WebSocketFrameType::Binary=>ws.send_text(frame.get_payload()).await?,
-                //             _=>()
-                //         }
-                //     }
-                // }
-            } else {
-                res.close(b"websocket").await?;
+            let mut ws=res.websocket().await?;
+            println!("ws-echo: started websocket");
+            loop{
+                let frames=ws.incoming().await?;
+                if frames.is_empty(){ break }
+                for frame in frames{
+                    println!("ws-echo: received ws frame {:?} {}",frame.ftype,frame.payload.len());
+                    match frame.ftype{
+                        WebSocketFrameType::Ping=>ws.send_pong(frame.get_payload()).await?,
+                        WebSocketFrameType::Text=>ws.send_text(frame.get_payload()).await?,
+                        WebSocketFrameType::Binary=>ws.send_text(frame.get_payload()).await?,
+                        _=>()
+                    }
+                }
             }
             // let mut ws=res.websocket().await?;
             // loop{
