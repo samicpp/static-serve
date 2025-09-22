@@ -34,7 +34,7 @@ pub async fn handler<S:HttpSocket+Sized+Send+'static>(shared: Arc<SharedData>, m
 
     let full_path: String = { 
         let full_path: String = client.path.clone();
-        let full_path = full_path.replace("\\","/");
+        let full_path = full_path.replace("\\","/").replace("/..","/");
         let full_path = full_path.split(|c| c == '?' || c == '#').next().unwrap_or("");
         
         let mut cleaned = PathBuf::new();

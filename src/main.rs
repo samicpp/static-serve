@@ -26,8 +26,8 @@ const SETTINGS:Http2FrameSettings=Http2FrameSettings{
     header_table_size: Some(16777215),
     enable_push: None,
     max_concurrent_streams: None,
-    initial_window_size: None,
-    max_frame_size: None,
+    initial_window_size: Some(65535),
+    max_frame_size: Some(65535),
     max_header_list_size: None,
 };
 
@@ -202,6 +202,9 @@ async fn main()->std::io::Result<()> {
     let server = TcpListener::bind(&address).await?;
     // let h2_enabled=h2_enabled.clone();
     
+    println!("http2 settings are {:?}",SETTINGS);
+    // println!("{:?}",SETTINGS.to_buff());
+
     loop{
         let h2_enabled=h2_enabled.clone();
         let (socket, addr) = server.accept().await?;

@@ -12,4 +12,7 @@ example: `./static-runtime localhost:4096 ./static/`
 
 
 ## TODO
-1. [ ] tls support
+1. [x] tls support
+2. [x] use HTTP/2 and allow H2C upgrade
+3. [ ] use HTTP/3 (library currently doesnt support this)
+
