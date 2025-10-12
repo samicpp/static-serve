@@ -108,7 +108,7 @@ async fn main()->std::io::Result<()> {
 
                 _=>false,
             }
-        }).unwrap_or(false)
+        }).unwrap_or(true)
     };
 
     let args: Vec<String> = env::args().collect();
@@ -277,7 +277,8 @@ async fn h2c_or_plain<S:Stream+'static>(shared: Arc<SharedData>, middleware_data
             if client.headers.get("upgrade").map_or(false, |u|u[0]=="h2c"){
                 let h2=hand.h2c().await?;
                 let h2=Arc::new(h2);
-                let mut f=h2.init().await?;
+                h2.init().await?;
+                let mut f=h2.incoming_frames().await?;
                 h2.send_settings(0, SETTINGS).await?;
                 h2.flush().await?;
 
@@ -317,7 +318,8 @@ async fn h2c_or_plain<S:Stream+'static>(shared: Arc<SharedData>, middleware_data
 }
 
 async fn h2_wrapper<S:Stream+'static>(shared: Arc<SharedData>, middleware_data: Arc<MiddlewareData<S>>, h2: Arc<Http2Session<'static,S>>)->HttpResult<()>{
-    let mut f=h2.init().await?;
+    h2.init().await?;
+    let mut f=h2.incoming_frames().await?;
     h2.send_settings(0, SETTINGS).await?;
     
     let mut hpackd=h2.hpackd.lock().await;
