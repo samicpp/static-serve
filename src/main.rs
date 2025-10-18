@@ -221,11 +221,15 @@ async fn main()->std::io::Result<()> {
                         match alpn.as_deref(){
                             Some("h2")=>{
                                 println!("\x1b[35mexplicitly use http/2\x1b[0m");
-                                let h2=Http2Session::new(tls_sock, addr);
+                                let h2=Http2Session::new(tls_sock, addr, Http2FrameSettings::default());
                                 let h2=Arc::new(h2);
+                                // h2_wrapper(shared, middleware_data_tls, h2).await.unwrap();
                                 match h2_wrapper(shared, middleware_data_tls, h2).await{
                                     Ok(_)=>(),
-                                    Err(e)=>eprintln!("h2 handler error {e:?}"),
+                                    Err(e)=>{
+                                        eprintln!("h2 handler error {e:?}");
+                                        dbg!(e);
+                                    },
                                 }
                             },
                             Some("http/1.1")=>{
@@ -279,7 +283,7 @@ async fn h2c_or_plain<S:Stream+'static>(shared: Arc<SharedData>, middleware_data
                 let h2=Arc::new(h2);
                 h2.init().await?;
                 let mut f=h2.incoming_frames().await?;
-                h2.send_settings(0, SETTINGS).await?;
+                h2.send_settings(SETTINGS).await?;
                 h2.flush().await?;
 
                 let mut new=h2.handle_frames(f.clone()).await?;
@@ -320,11 +324,13 @@ async fn h2c_or_plain<S:Stream+'static>(shared: Arc<SharedData>, middleware_data
 async fn h2_wrapper<S:Stream+'static>(shared: Arc<SharedData>, middleware_data: Arc<MiddlewareData<S>>, h2: Arc<Http2Session<'static,S>>)->HttpResult<()>{
     h2.init().await?;
     let mut f=h2.incoming_frames().await?;
-    h2.send_settings(0, SETTINGS).await?;
+    h2.send_settings(SETTINGS).await?;
     
-    let mut hpackd=h2.hpackd.lock().await;
-    hpackd.set_max_table_size(16777215);
-    drop(hpackd);
+    {
+        let mut hpackd=h2.hpackd.lock().unwrap();
+        hpackd.set_max_table_size(16777215);
+        drop(hpackd);
+    }
  
     loop{
         if f.len()==0{ println!("\x1b[31mhttp2 connection closed\x1b[0m"); break };
