@@ -376,7 +376,14 @@ async fn h2_wrapper<S:Stream+'static>(shared: Arc<SharedData>, middleware_data: 
             //     listener(Arc::clone(&shared), hand).await;
             // });
         };
-        f=h2.incoming_frames().await.expect("error reading frames");
+        f=match h2.incoming_frames().await{
+            Ok(v)=>v,
+            Err(err)=>{
+                eprintln!("\x1b[31merror reading frames\x1b[0m");
+                dbg!(err);
+                vec![]
+            },
+        };
     }
     Ok(())
 }
