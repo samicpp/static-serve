@@ -321,7 +321,7 @@ async fn h2c_or_plain<S:Stream+'static>(shared: Arc<SharedData>, middleware_data
     Ok(())
 }
 
-async fn h2_wrapper<S:Stream+'static>(shared: Arc<SharedData>, middleware_data: Arc<MiddlewareData<S>>, h2: Arc<Http2Session<'static,S>>)->HttpResult<()>{
+async fn h2_wrapper<S:Stream+'static>(shared: Arc<SharedData>, middleware_data: Arc<MiddlewareData<S>>, h2: Arc<Http2Session<S>>)->HttpResult<()>{
     h2.init().await?;
     let mut f=h2.incoming_frames().await?;
     h2.send_settings(SETTINGS).await?;
@@ -352,7 +352,7 @@ async fn h2_wrapper<S:Stream+'static>(shared: Arc<SharedData>, middleware_data: 
         let new=h2.handle_frames(f.clone()).await?;
         for stream_id in new{
             println!("new stream opened {stream_id}");
-            let mut hand: Http2Handler<'static, S>=Http2Handler::new(stream_id, Arc::clone(&h2));
+            let mut hand: Http2Handler<S>=Http2Handler::new(stream_id, Arc::clone(&h2));
             let shared=Arc::clone(&shared);
             // let h2=Arc::clone(&h2);
             let _=hand.read_client().await;
